@@ -66,27 +66,27 @@ int min(int a, int b)
 
 int estimation_distance(Pos dep, Pos arr, int size_x, int size_y)
 {
-  int x = min( abs(size_x - arr.x + dep.x), abs(arr.x - dep.x) );               /*on regarde s'il est plus rapide d'aller vers la droite ou vers la gauche */
-  int y = min( abs(size_y - arr.y + dep.y), abs(arr.y - dep.y) );               /*on regarde s'il est plus rapide de passer par en haut ou par en bas */
+  int x = min( size_y - arr.x + dep.x, abs(arr.x - dep.x) );               /*on regarde s'il est plus rapide d'aller vers la droite ou vers la gauche */
+  int y = min( size_x - arr.y + dep.y, abs(arr.y - dep.y) );               /*on regarde s'il est plus rapide de passer par en haut ou par en bas */
   return x+y;
 }
 
-/*Fonction permettant de savoir si un element se trouve deja dans la closedList, pour eviter de l'ajouter dans l'openList */
+/*Fonction renvoyant un pointeur vers la case de la closedList se trouvant à la position p */
 Case* trouver_element(Case* closedList, Pos p)
 {
-  Case *tmp = closedList;
+  Case *tmp = closedList; //case parcourant la closedList  
   while(tmp)
     {
       if( tmp -> pos.x == p.x && tmp->pos.y == p.y)
-	return tmp;
+	{
+	  return tmp;	  
+	}
       tmp= tmp->suiv;
     }
   return NULL;
 }
 
-
-
-/*Fonction ajoutant le voisin de la case x a la liste chainee openList
+/*Fonction ajoutant un voisin de la case x a la liste chainee openList
 Ici les elements de l'openList sont ranges dans l'ordre croissant de leur heuristique */
 
 Case* ajout_element(Case* openList,Case* x, Pos voisin, int size_x, int size_y, Pos tresor)
@@ -115,15 +115,28 @@ Case* ajout_element(Case* openList,Case* x, Pos voisin, int size_x, int size_y, 
     return element_ajout;
   
   /*Cas où on doit placer l'élément en tête de liste*/
-  if (openList->heuristique >= element_ajout->heuristique)  
+  if (openList->heuristique > element_ajout->heuristique)  
     {
       element_ajout -> suiv = openList;
       return element_ajout;
     }
 
   /*On parcourt les éléments de la liste tant qu'on n'a pas trouvé un entier plus grand que l'heuristique du voisin a ajouter*/
-  while ( (cur!=NULL) && (cur->heuristique < element_ajout->heuristique) )
+  while ( (cur!=NULL) && (cur->heuristique <= element_ajout->heuristique) )
     {
+      /* Si l'element que l'on veut ajouter se trouve deja dans l'openList mais avec un cout plus eleve, alors on modifie la case deja existante*/
+      if (cur -> pos.x == element_ajout->pos.x && cur -> pos.y == element_ajout->pos.y)
+	{
+	  if  (cur->cost >= element_ajout->cost) 
+	    {
+	      cur -> cost = element_ajout ->cost;
+	      cur -> prec = element_ajout->prec;
+	    }
+	  free(element_ajout);
+	  return openList;
+	  
+	}
+      
       prec=cur;
       cur= cur->suiv;
     }
@@ -305,10 +318,77 @@ void liberer_memoire(Case* list)
     }
 }
 
-int a_etoile(Lab* laby, int size_x, int size_y)
+/* Fonction reconstituant le chemin trouve a partir de la case Tresor afin de renvoyer la liste de mouvement a effectuer*/
+t_move* reconstitution_chemin(Lab* laby, Case* closedList)
+{
+  // Initialsiation du tableau de mouvements a renvoyer 
+  t_move* move = NULL;
+
+  /* variables temporaires utilises pour parcourir la closedList */
+  Case *tmp = closedList;
+  
+  /*Entier permettant de connaître le nombre de cases parcourues pendant le chemin */
+  int nb_case = 1;
+
+  int i; // compteur
+
+  /* Tant qu'on n'a pas remonte jusqu'a la position de depart, on continue de rebrousser chemin pour trouver le nombre de cases parcourues dans le chemin*/
+  while(tmp->prec.x != laby->play.x || tmp->prec.y!= laby->play.y)
+    {
+      tmp = trouver_element(closedList, tmp->prec);
+      nb_case++;
+    }
+  
+  /* On alloue la memoire necessaire pour le tableau de mouvements */
+  move = (t_move*)malloc(nb_case * sizeof(t_move));
+  
+  /* on remplit desormais le tableau de mouvements: on part de la derniere case et on essaye de retrouver pour chaque case le mouvement qui correspond pour passer de cette case à son predecesseur*/ 
+
+  tmp = closedList;	  
+  for (i=nb_case-1; i>=0; i--)
+    {
+      // en bas
+      if(tmp->pos.x - tmp->prec.x == 1 || tmp->pos.x - tmp->prec.x < -1)
+	{
+	  move[i].type = 5;
+	  move[i].value = 0;		 
+	}
+      //en haut
+      if(tmp->pos.x - tmp->prec.x == -1 || tmp->pos.x - tmp->prec.x > 1)
+	{
+	  move[i].type = 4;
+	  move[i].value = 0;		 
+	}
+      // a droite	      
+      if(tmp->pos.y - tmp->prec.y == 1 || tmp->pos.y - tmp->prec.y < -1)
+	{
+	  move[i].type = 7;
+	  move[i].value = 0;		 
+	}
+      // a gauche
+      if(tmp->pos.y - tmp->prec.y == -1 || tmp->pos.y - tmp->prec.y > 1)
+	{
+	  move[i].type = 6;
+	  move[i].value = 0;		 
+	}
+      
+      // on passe à la case d'avant
+      tmp = trouver_element(closedList, tmp->prec);
+      
+    }
+  return move;
+}
+
+
+/* Fonction renvoyant un tableau de mouvements consécutifs a effectuer pour aller du depart a l'arrivee*/
+
+t_move* a_etoile(Lab* laby, int size_x, int size_y)
 {
    
-  /* Initialisation de openList (qui contient juste la case deaprt) et closedList */
+  // Initialsiation du tableau de mouvements a renvoyer 
+  t_move* move;
+
+  /* Initialisation de openList (qui contient juste la case depart) et closedList */
   Case* closedList = NULL;
   Case* openList = NULL;
 
@@ -316,15 +396,14 @@ int a_etoile(Lab* laby, int size_x, int size_y)
   if (openList == NULL)
     {
       printf("Erreur dans le malloc de la fonction ajouter_element\n");
-      return 1;
+      return NULL;
     }
-  
   openList-> pos = laby->play;
   openList-> cost = 0;
   openList-> heuristique = estimation_distance(laby->play, laby->Tresor, size_x, size_y);
   openList-> prec = laby->play; //on choisit une position precedente arbitraire
   openList-> suiv = NULL;
-
+  
   /*Initialisation des positions des voisins de la case exploree */
   Pos voisin_h;
   Pos voisin_g;
@@ -335,88 +414,84 @@ int a_etoile(Lab* laby, int size_x, int size_y)
   /* pour plus de lisibilite, on stocke la position de la case exploree dans 2 variables x et y */
   int x;
   int y;
+
+  /* booleen etant faux si on a trouve un chemin, vrai sinon */
+  int chemin_non_trouve = 1;
   
-  /* variables temporaires utiles pour transferer un element de l'openList a la closedList ou pour chercher un element dans la closedList */
+   /* variable temporaire utile pour transferer un element de l'openList a la closedList ou pour chercher un element dans la closedList */
   Case* tmp;
-  Pos pos_tmp;
-  
+
   /*execution de l'agorithme a* */
-  while (openList)
+
+  // Tant que l'openList est non vide et qu'on n'a pas trouve de chemin
+  while (openList && chemin_non_trouve)
     {
-      /*on transfert le plus petit element (donc le premier) de l'openList dans la closedList*/
+      // on transfert la case exploree de l'openList a la closedList
       tmp = closedList;
       closedList = openList;
       openList = openList -> suiv;
       closedList->suiv = tmp;
-      
+ 
       /* stockage de la position de la case exploree */
       x = closedList->pos.x;
       y = closedList->pos.y;
-
-      /* stockage des positions des voisins de la case exploree */
-      voisin_h.x = reste(x - 1, size_y);
-      voisin_h.y = y;
-      voisin_b.x = reste(x + 1, size_y);
-      voisin_b.y = y;
-      voisin_g.x = x;
-      voisin_g.y = reste(y - 1, size_x);
-      voisin_d.x = x;
-      voisin_d.y = reste(y + 1, size_x);
-      
+ 
       /* on verifie que l'element tranfere est l'objectif d'arrivee */
       if (x == laby->Tresor.x && y == laby->Tresor.y)
 	{
-	   /* on reconstitue chemin : pour le moment on ne fait qu'afficher le chemin emprunté par l'algorithme*/
-
+	  // on vient de trouver un chemin
+	  chemin_non_trouve = 0;
 	  
-	  /* Stockage de la case et de la position de la case dans des variables temporaires*/ 
-	  tmp = closedList;
-	  pos_tmp.x = x;
-	  pos_tmp.y = y;
+	  /* on reconstitue chemin afin de renvoyer les mouvements a effectuer dans un tableau*/
+	  move = reconstitution_chemin(laby, closedList);
 	  
-	  printf("%d %d\n",x,y);
-	  
-	  /* Tant qu'on n'a pas remonte jusqu'a la position de depart, on affiche */
-	  while(pos_tmp.x!= laby->play.x && pos_tmp.y!= laby->play.y)
-	    {
-	      printf("%d %d\n", tmp ->prec.x, tmp->prec.y);
-	      pos_tmp.x = tmp ->prec.x;
-	      pos_tmp.y = tmp->prec.y;
-	      tmp = trouver_element(closedList, pos_tmp); 
-	    }
 	}
+      
+      /* si on n'a pas trouve le tresor, on ajoute les voisins de la case exploree à l'openList*/
       else
 	{
-	   /* on ajoute le voisin du haut (si ce n'est pas un mur et qu'il n'a pas deja ete explore) a l'openList*/
-	  if (laby -> lab[ size_x * voisin_h.x + y ] == 0 && trouver_element(closedList, voisin_h) == NULL)
-	    {
-	      openList = ajout_element(openList, closedList, voisin_h, size_x, size_y, laby-> Tresor);
-	      
-	    }
-	  /* on ajoute le voisin du bas (si ce n'est pas un mur et qu'il n'a pas deja ete explore) a l'openList*/
-	  if (laby -> lab[ size_x * voisin_b.x + y ] == 0 && trouver_element(closedList, voisin_b) == NULL)
-	    {
-	       openList = ajout_element(openList, closedList, voisin_b, size_x, size_y, laby-> Tresor);
-	    }
-	  /* on ajoute le voisin de gauche (si ce n'est pas un mur et qu'il n'a pas deja ete explore) a l'openList*/
-	  if (laby -> lab[ size_x * x + voisin_g.y ] == 0  && trouver_element(closedList, voisin_g) == NULL)
-	    {
-	       openList = ajout_element(openList, closedList, voisin_g, size_x, size_y, laby-> Tresor);
-	    }
-	  /* on ajoute le voisin de droite (si ce n'est pas un mur et qu'il n'a pas deja ete explore) a l'openList*/
-	  if (laby -> lab[ size_x * x + voisin_d.y ] == 0 && trouver_element(closedList, voisin_d) == NULL)
-	    {
-	      openList = ajout_element(openList, closedList, voisin_d, size_x, size_y, laby-> Tresor);
-	      
-	    }	
+	  /* stockage des positions des voisins de la case exploree */
+	  voisin_h.x = reste(x - 1, size_y);
+	  voisin_h.y = y;
+	  voisin_b.x = reste(x + 1, size_y);
+	  voisin_b.y = y;
+	  voisin_g.x = x;
+	  voisin_g.y = reste(y - 1, size_x);
+	  voisin_d.x = x;
+	  voisin_d.y = reste(y + 1, size_x);
 	  
-	}	  
+	  /* on ajoute le voisin du haut (si ce n'est pas un mur et qu'il n'a pas deja ete explore)*/
+	  if (laby -> lab[ size_x * voisin_h.x + y ] == 0 && trouver_element(closedList, voisin_h) == NULL)
+	    openList = ajout_element(openList, closedList, voisin_h, size_x, size_y, laby-> Tresor);	    
+	  
+	  /* on ajoute le voisin du bas (si ce n'est pas un mur et qu'il n'a pas deja ete explore)*/
+	  if (laby -> lab[ size_x * voisin_b.x + y ] == 0 && trouver_element(closedList, voisin_b) == NULL)
+	    openList = ajout_element(openList, closedList, voisin_b, size_x, size_y, laby-> Tresor);
+	  
+	  /* on ajoute le voisin de gauche (si ce n'est pas un mur et qu'il n'a pas deja ete explore)*/
+	  if (laby -> lab[ size_x * x + voisin_g.y ] == 0  && trouver_element(closedList, voisin_g) == NULL)
+	    openList = ajout_element(openList, closedList, voisin_g, size_x, size_y, laby-> Tresor);
+		  
+	  /* on ajoute le voisin de droite (si ce n'est pas un mur et qu'il n'a pas deja ete explore) */
+	  if (laby -> lab[ size_x * x + voisin_d.y ] == 0 && trouver_element(closedList, voisin_d) == NULL)
+	    openList = ajout_element(openList, closedList, voisin_d, size_x, size_y, laby-> Tresor);
+	}
 	  
     }
 
   liberer_memoire(openList);
   liberer_memoire(closedList);
-  return 0;
+
+  /* Si on est sorti de la boucle sans trouver de chemins on renvoie un mouvement unique DO_NOTHING*/
+  if (chemin_non_trouve)
+    {
+      move = (t_move*)malloc(sizeof(t_move));
+      move[0].type = 8;
+      move[0].value = 0;
+      
+    }
+  
+  return move;
 }
 
 
@@ -429,14 +504,20 @@ int main()
 	int player;
 	int sizeX,sizeY;
 	Lab *laby = (Lab*)malloc(sizeof(Lab));
+
+	/*Tableau contenant la liste des mouvements a effectuer*/
+	t_move* list_moves;
+
+	int nb_tour = 0; //indique le numero de notre tour
 	
 	/* connection to the server */
-	connectToServer( "pc4025.polytech.upmc.fr", 1234, "prog_mahsh_ani");
+	connectToServer( "pc4023.polytech.upmc.fr", 1234, "prog_mahsh_ani");
 	
 	
 	/* wait for a game, and retrieve informations about it */
-	waitForLabyrinth( "DO_NOTHING timeout=400", labName, &sizeX, &sizeY);	
+	//waitForLabyrinth( "DO_NOTHING timeout=400", labName, &sizeX, &sizeY);	
 	//waitForLabyrinth( "PLAY_RANDOM timeout=100 rotation=TRUE", labName, &sizeX, &sizeY);
+	waitForLabyrinth("ASTAR timeout=100", labName, &sizeX, &sizeY);
 	labData = (char*) malloc( sizeX * sizeY );
 	player = getLabyrinth( labData);
 	
@@ -463,6 +544,8 @@ int main()
 	    laby -> play.y = 0;
 	    laby -> adv.y = sizeX - 1;
 	  }
+
+	list_moves = a_etoile(laby,sizeX,sizeY);
 	
 	do
 	  {
@@ -471,33 +554,44 @@ int main()
 	    if (player==1)	/* The opponent plays */
 	      {
 		ret = getMove( &move);
-		
-		lab_update(laby -> lab, sizeX, sizeY, move);
+		/* On met a jour sa position dans le labyrinthe s'il s'est juste deplace*/
 		pos_update_translation(&(laby->adv), sizeX, sizeY, move);
-		pos_update_rotation(&(laby->adv), sizeX, sizeY, move);
-
-		/* On met a jour notre position dans le labyrinthe ainsi que le labyrinthe s'il a effectue une rotation */
-		pos_update_rotation(&(laby->Tresor), sizeX, sizeY, move);
-		pos_update_rotation(&(laby->play), sizeX, sizeY, move);
-
+		
+		/* On met a jour les donnees du labyrinthe  s'il a effectue une rotation */
+		if (move.type<=3)
+		  {
+		    lab_update(laby -> lab, sizeX, sizeY, move);		
+		    pos_update_rotation(&(laby->adv), sizeX, sizeY, move);		
+		    pos_update_rotation(&(laby->Tresor), sizeX, sizeY, move);
+		    pos_update_rotation(&(laby->play), sizeX, sizeY, move);
+		    
+		  }
+		
 		/*C'est a nous de jouer */
 		player = 0;
 	      }
 	    
 	    else
 	      {
-		/*On génère un mouvement puis on met a jour notre structure laby */
 		//	move =  make_move(laby, sizeX, sizeY);
-		move = a_etoile(laby,sizeX,sizeY);
-		ret = sendMove(move);
-		lab_update(laby -> lab, sizeX, sizeY, move);
+		//	move = a_etoile(laby,sizeX,sizeY);
 
+		/*On génère un mouvement puis on met a jour notre structure laby */
+		move = list_moves[nb_tour];
+		ret = sendMove(move);
 		pos_update_translation(&(laby->play), sizeX, sizeY, move);
-		pos_update_rotation(&(laby->play), sizeX, sizeY, move);
-		pos_update_rotation(&(laby->Tresor), sizeX, sizeY, move);
-		pos_update_rotation(&(laby->adv), sizeX, sizeY, move);
-		
+
+		/* On met a jour les donnees du labyrinthe  si on a effectue une rotation */
+		if (move.type<=3)
+		  {
+		    lab_update(laby -> lab, sizeX, sizeY, move);		
+		    pos_update_rotation(&(laby->adv), sizeX, sizeY, move);		
+		    pos_update_rotation(&(laby->Tresor), sizeX, sizeY, move);
+		    pos_update_rotation(&(laby->play), sizeX, sizeY, move);
+		    
+		  }
 		player = 1;
+		nb_tour++;
 	      }
 	    
 	  } while(ret == MOVE_OK);	
@@ -510,6 +604,7 @@ int main()
 	/* we do not forget to free the allocated array */
 	free(labData);
 	free(laby);
+	free(list_moves);
 	
 	
 	/* end the connection, because we are polite */
